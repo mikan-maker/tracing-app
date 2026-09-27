@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>映し絵アプリ（トレース台）</title>
+<style>
+  /* iPad特有の誤作動（コピー、長押し保存、スクロール等）を徹底防止 */
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-touch-callout: none !important; /* 長押しメニュー（コピー・保存）無効化 */
+    -webkit-user-select: none !important;   /* テキスト選択無効化 */
+    user-select: none !important;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #ffffff;
+    touch-action: none;                    /* Safariの標準ジェスチャー・バウンド無効 */
+    overscroll-behavior: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  /* 画像表示領域 */
+  #canvas-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 0;
+    left: 0;
+    /* ロック時は一切のタッチイベントを受け付けない（ピタッと完全固定） */
+    pointer-events: none;
+  }
+
+  #trace-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    transform-origin: center center;
+    display: none;
+  }
+
+  /* 操作パネル */
+  #ui-panel {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 30, 30, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 12px 20px;
+    border-radius: 30px;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    z-index: 100;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    transition: opacity 0.2s ease, visibility 0.2s;
+  }
+
+  /* 各種ボタンと入力 */
+  .btn {
+    background: #4a90e2;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .btn-lock {
+    background: #e74c3c;
+  }
+
+  .file-label {
+    background: #555;
+  }
+
+  input[type="file"] {
+    display: none;
+  }
+
+  /* ロック解除用ボタン（画面の右上に極薄で配置） */
+  #unlock-btn {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: rgba(0, 0, 0, 0.25);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    padding: 8px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    z-index: 200;
+    display: none;
+    cursor: pointer;
+  }
+
+  /* 初回ガイド */
+  #guide-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #888;
+    font-size: 16px;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ガイドテキスト -->
+  <div id="guide-text">画像を選択してください</div>
+
+  <!-- 画像表示コンテナ（ロック時はタッチ無効） -->
+  <div id="canvas-container">
+    <img id="trace-image" alt="trace target">
+  </div>
+
+  <!-- 操作用UIパネル -->
+  <div id="ui-panel">
+    <label class="btn file-label">
+      画像を選択
+      <input type="file" id="file-input" accept="image/*">
+    </label>
+    <button class="btn" id="flip-btn">左右反転</button>
+    <button class="btn btn-lock" id="lock-btn">固定して描く（UI非表示）</button>
+  </div>
+
+  <!-- UI復帰ボタン -->
+  <button id="unlock-btn">UIを表示</button>
+
+<script>
+  const fileInput = document.getElementById('file-input');
+  const traceImage = document.getElementById('trace-image');
+  const guideText = document.getElementById('guide-text');
+  const uiPanel = document.getElementById('ui-panel');
+  const lockBtn = document.getElementById('lock-btn');
+  const unlockBtn = document.getElementById('unlock-btn');
+  const flipBtn = document.getElementById('flip-btn');
+
+  let isFlipped = false;
+
+  // 1. iPadの長押しメニュー（コンテキストメニュー）を完全に無効化
+  document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+  }, { passive: false });
+
+  // 2. ブラウザ標準の拡大ピンチや不要なドラッグを防止
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length > 1) {
+      e.preventDefault(); // 2本指以上のピンチ防止
+    }
+  }, { passive: false });
+
+  document.addEventListener('touchmove', (e) => {
+    e.preventDefault(); // スクロール防止
+  }, { passive: false });
+
+  // 3. 画像アップロード処理（アップロードと同時に画面中央にフィット固定）
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        traceImage.src = event.target.result;
+        traceImage.style.display = 'block';
+        guideText.style.display = 'none';
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  // 左右反転（デッサン狂いのチェック等）
+  flipBtn.addEventListener('click', () => {
+    isFlipped = !isFlipped;
+    traceImage.style.transform = isFlipped ? 'scaleX(-1)' : 'scaleX(1)';
+  });
+
+  // 4. 固定モード（UI非表示＆描画準備）
+  lockBtn.addEventListener('click', () => {
+    // UIを隠す
+    uiPanel.style.display = 'none';
+    // 右上に小さく復帰ボタンだけ表示（描画の邪魔にならない半透明）
+    unlockBtn.style.display = 'block';
+  });
+
+  // 5. 固定解除（UI再表示）
+  unlockBtn.addEventListener('click', () => {
+    uiPanel.style.display = 'flex';
+    unlockBtn.style.display = 'none';
+  });
+</script>
+</body>
+</html>
